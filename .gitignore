@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+
+# StreamDeck
+*.streamDeckPlugin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

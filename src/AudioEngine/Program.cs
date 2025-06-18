@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Diagnostics;
 using CSCore.CoreAudioAPI;
 
 namespace AudioEngine
@@ -12,6 +13,17 @@ namespace AudioEngine
         public string Name { get; set; } = "";      // Display name
         public string State { get; set; } = "";     // Active/Disabled
         public bool IsDefault { get; set; } = false; // Windows default device
+    }
+
+    // Audio session info for JSON output
+    public class AudioSession
+    {
+        public string ProcessName { get; set; } = "";   // App name (e.g., "Spotify")
+        public int ProcessId { get; set; } = 0;         // Windows process ID
+        public string DeviceName { get; set; } = "";    // Current audio device
+        public string DeviceId { get; set; } = "";      // Device ID for routing
+        public bool IsPlaying { get; set; } = false;    // Currently making sound
+        public float Volume { get; set; } = 0.0f;       // Session volume level
     }
 
     class Program 
@@ -97,10 +109,87 @@ namespace AudioEngine
             Console.WriteLine(json);
         }
 
-        // List apps using audio - coming soon
+        // Find all apps currently using audio
         static void ListAudioSessions()
         {
-            Console.WriteLine("Audio sessions functionality coming soon...");
+            var sessions = new List<AudioSession>();
+            
+            // Access Windows Audio API
+            using (var deviceEnumerator = new MMDeviceEnumerator())
+            {
+                // Check each audio device for active sessions
+                var deviceCollection = deviceEnumerator.EnumAudioEndpoints(DataFlow.Render, DeviceState.Active);
+                
+                foreach (var device in deviceCollection)
+                {
+                    try
+                    {
+                        // Get the session manager for this device
+                        var sessionManager = AudioSessionManager2.FromMMDevice(device);
+                        var sessionEnumerator = sessionManager.GetSessionEnumerator();
+                        
+                        // Check each audio session on this device
+                        foreach (var session in sessionEnumerator)
+                        {
+                            try
+                            {
+                                // Cast to AudioSessionControl2 to get process info
+                                var sessionControl2 = session.QueryInterface<AudioSessionControl2>();
+                                
+                                // Skip system sessions (no process ID)
+                                var processId = sessionControl2.ProcessID;
+                                if (processId == 0) 
+                                {
+                                    sessionControl2.Dispose();
+                                    continue;
+                                }
+                                
+                                // Get process info
+                                var process = Process.GetProcessById((int)processId);
+                                if (process == null) 
+                                {
+                                    sessionControl2.Dispose();
+                                    continue;
+                                }
+                                
+                                // Get volume control interface
+                                var volumeControl = session.QueryInterface<SimpleAudioVolume>();
+                                
+                                // Create session info
+                                var audioSession = new AudioSession
+                                {
+                                    ProcessName = process.ProcessName,
+                                    ProcessId = (int)processId,
+                                    DeviceName = device.FriendlyName,
+                                    DeviceId = device.DeviceID,
+                                    IsPlaying = session.SessionState == AudioSessionState.AudioSessionStateActive,
+                                    Volume = volumeControl.MasterVolume
+                                };
+                                
+                                sessions.Add(audioSession);
+                                
+                                // Clean up interfaces
+                                sessionControl2.Dispose();
+                                volumeControl.Dispose();
+                            }
+                            catch
+                            {
+                                // Skip sessions we can't access
+                                continue;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Skip devices we can't access
+                        continue;
+                    }
+                }
+            }
+
+            // Output JSON for StreamDeck plugin
+            var json = JsonSerializer.Serialize(sessions, new JsonSerializerOptions { WriteIndented = true });
+            Console.WriteLine(json);
         }
 
         // Route app to device - coming soon
